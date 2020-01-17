@@ -13,3 +13,5 @@ Course material of USTB Computer Science. Study usage only. 侵删
     2. [操作系统](Junior/Computer%20Systems)
     3. [计算机网络](Junior/Computer%20Network)
     4. [汇编语言与接口技术](Junior/Assembly%20Language)
+    5. [数据库系统原理](Junior/Database%20System%20Concept)
+    6. [计算机组成原理课程设计](Junior/Computer%20Organization%20Design)
