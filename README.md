@@ -1,5 +1,6 @@
 ## 学习资料汇总 USTB CS（2017版教学计划）
-Course material of USTB Computer Science. Study usage only. All rights reserve to BoffinZhang.
+Course material of USTB Computer Science. Study usage only. 侵删
+
 鄙人水平有限，欢迎大家给出意见和建议。
 ### 目录
 - 大一

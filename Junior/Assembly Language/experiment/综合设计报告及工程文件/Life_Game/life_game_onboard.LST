@@ -1,0 +1,809 @@
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 1
+rad20850.ASM
+
+
+
+      1				     ; 测试中断服务程序
+      2				     ; 用来测试时钟信号是否正常
+      3				     ; 280H-287H: 0000 0010 1000 0000
+      4				     ; 288H-28FH: 0000 0010 1000 1000
+      5				     ; 290H-297H: 0000 0010 1001 0000
+      6				     ; 298H-29FH: 0000 0010 1001 1000
+      7				     ; 2A0H-2A7H: 0000 0010 1010 0000
+      8				     ; 2A8H-2AFH: 0000 0010 1010 1000
+      9				     ; 2B0H-2B7H: 0000 0010 1011 0000
+     10				     ; 2B8H-2BFH: 0000 00a10 1011 1000
+     11
+     12	      =0286		     IO8255_MODE  EQU  286H
+     13	      =0280		     IO8255_A	  EQU  280H
+     14	      =0282		     IO8255_B	  EQU  282H
+     15	      =0284		     IO8255_C	  EQU  284H
+     16
+     17	      =02A6		     IO8254_MODE  EQU  2A6H
+     18	      =02A0		     IO8254_0	  EQU  2A0H
+     19	      =02A2		     IO8254_1	  EQU  2A2H
+     20	      =02A4		     IO8254_2	  EQU  2A4H
+     21
+     22	      =02B4		     I8259_1   EQU   2B4H	; 8259的ICW1端口地址
+     23	      =02B3		     I8259_2   EQU   2B3H	; 8259的ICW2端口地址
+     24	      =02B6		     I8259_3   EQU   2B6H	; 8259的ICW3端口地址
+     25	      =02B5		     I8259_4   EQU   2B5H	; 8259的ICW4端口地址
+     26	      =02B1		     O8259_1   EQU   2B1H	; 8259的OCW1端口地址
+     27	      =02B0		     O8259_2   EQU   2B0H	; 8259的OCW2端口地址
+     28	      =02B2		     O8259_3   EQU   2B2H	; 8259的OCW3端口地址
+     29
+     30
+     31				     ; 每个点由8个字节表示
+     32				     ROW	 EQU	IO8255_B
+     33				     COL	 EQU	IO8255_A
+     34
+     35	0000			     DATA SEGMENT 'DATA'
+     36	0000  00			 buffer	 DB  00000000B
+     37	0001  00				 DB  00000000B
+     38	0002  00				 DB  00000000B
+     39	0003  00				 DB  00000000B
+     40	0004  00				 DB  00000000B
+     41	0005  00				 DB  00000000B
+     42	0006  00				 DB  00000000B
+     43	0007  00				 DB  00000000B
+     44
+     45	0008  00			 glider	 DB  00000000B
+     46	0009  20				 DB  00100000B
+     47	000A  10				 DB  00010000B
+     48	000B  70				 DB  01110000B
+     49	000C  00				 DB  00000000B
+     50	000D  00				 DB  00000000B
+     51	000E  00				 DB  00000000B
+     52	000F  00				 DB  00000000B
+     53	0010  00			     exploder DB  00000000B
+     54	0011  00				 DB  00000000B
+     55	0012  08				 DB  00001000B
+     56	0013  1C				 DB  00011100B
+     57	0014  14				 DB  00010100B
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 2
+rad20850.ASM
+
+
+
+     58	0015  08				 DB  00001000B
+     59	0016  00				 DB  00000000B
+     60	0017  00				 DB  00000000B
+     61	0018  00			 light_spaceship DB 00000000B
+     62	0019  00				 DB  00000000B
+     63	001A  3C				 DB  00111100B
+     64	001B  44				 DB  01000100B
+     65	001C  04				 DB  00000100B
+     66	001D  48				 DB  01001000B
+     67	001E  00				 DB  00000000B
+     68	001F  00				 DB  00000000B
+     69
+     70	0020  00			 temp	 DB  00000000B
+     71	0021  00				 DB  00000000B
+     72	0022  00				 DB  00000000B
+     73	0023  0C				 DB  00001100B
+     74	0024  1E				 DB  00011110B
+     75	0025  0C				 DB  00001100B
+     76	0026  00				 DB  00000000B
+     77	0027  00				 DB  00000000B
+     78
+     79	0028  48 45 4C 4C 4F 20	57+	 MSG	 DB  'HELLO WORLD',0DH,0AH,'$'
+     80	      4F 52 4C 44 0D 0A	24
+     81	0036			     DATA ENDS
+     82
+     83	0000			     MYSTACK SEGMENT 'STACK'
+     84	0000  80*(0000)			     dw	     128 dup (0)
+     85	0100			     MYSTACK ENDS
+     86
+     87	0000			     CODE SEGMENT 'CODE'
+     88					ASSUME CS:CODE,	DS:DATA, SS:MYSTACK
+     89	0000			     START:
+     90	0000  B8 0000s			     MOV AX, DATA
+     91	0003  8E D8			     MOV DS, AX
+     92
+     93					     ; 初始化8259
+     94	0005  BA 02B4			      MOV DX, I8259_1	      ;初始化8259的ICW1
+     95	0008  B0 13			      MOV AL, 00010011b	      ;边沿触发、单片8259、需要ICW4(填空)
+     96	000A  EE			      OUT DX,AL
+     97
+     98	000B  BA 02B3			      MOV DX,I8259_2	     ;初始化8259的ICW2
+     99	000E  B0 B0			      MOV AL,0B0H
+    100	0010  EE			      OUT DX,AL
+    101	0011  B0 03			      MOV AL,03H
+    102	0013  EE			      OUT DX,AL
+    103	0014  BA 02B1			      MOV DX, O8259_1	   ;初始化8259的中断屏蔽操作命令字OCW1(填空)
+    104	0017  B0 00			      MOV AL, 00H	      ;打开屏蔽位(填空)
+    105	0019  EE			      OUT DX,AL
+    106
+    107					     ; 8255的工作模式: A&B输出，C输入定时器的信号
+    108	001A  BA 0286			     MOV DX, IO8255_MODE
+    109	001D  B0 89			     MOV AL, 89H
+    110	001F  EE			     OUT DX, AL
+    111
+    112	0020  BA 0282			     MOV DX,ROW
+    113	0023  B0 03			     MOV AL,03H
+    114	0025  EE			     OUT DX,AL
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 3
+rad20850.ASM
+
+
+
+    115
+    116	0026  BA 0280			     MOV DX,COL
+    117	0029  B0 F1			     MOV AL,0F1H
+    118	002B  EE			     OUT DX,AL
+    119					     ; TODO:
+    120					     ; 初始化8254工作模式
+    121					     ; 计数器0，方式3
+    122	002C  BA 02A6			     MOV DX, IO8254_MODE
+    123	002F  B0 36				 MOV AL, 00110110B
+    124	0031  EE			     OUT DX, AL
+    125	0032  BA 02A0				 MOV DX, IO8254_0
+    126	0035  B0 58				 MOV AL, 058H
+    127	0037  EE				 OUT DX, AL
+    128	0038  BA 02A0			     MOV DX, IO8254_0
+    129	003B  B0 00			     MOV AL, 00H
+    130	003D  EE			     OUT DX, AL
+    131
+    132
+    133					     ; 计数器1，方式0
+    134	003E  BA 02A6			     MOV DX, IO8254_MODE
+    135	0041  B0 70			     MOV AL, 01110000B
+    136	0043  EE			     OUT DX, AL
+    137	0044  BA 02A2			     MOV DX, IO8254_1
+    138	0047  B0 04			     MOV AL, 04H
+    139	0049  EE			     OUT DX, AL
+    140	004A  BA 02A2			     MOV DX, IO8254_1
+    141	004D  B0 14			     MOV AL, 014H
+    142	004F  EE			     OUT DX, AL
+    143
+    144
+    145
+    146	0050  E8 002C			     call load_pattern
+    147	0053			     QUERY:
+    148
+    149	0053  B9 00FF			     mov cx,0FFH
+    150	0056			     DIS_LOOP:
+    151	0056  E8 0281			     call DISP
+    152	0059  E2 FB			       loop DIS_LOOP
+    153	005B  BA 02B2			     MOV DX, O8259_3	    ;向8259发送查询命令(填空）
+    154	005E  B0 0C			     MOV AL, 0CH		    ;设置查询方式（填空）
+    155	0060  EE			     OUT DX,AL
+    156	0061  EC			     IN	AL,DX		    ;读出查询字
+    157	0062  A8 80			     TEST AL,80H	    ;判断中断是否已响应
+    158	0064  74 ED			     JZ	QUERY		    ;没有响应则继续查询
+    159
+    160	0066  E8 002E			     call generator
+    161	0069  BA 02A2			       MOV DX, IO8254_1
+    162	006C  B0 04			     MOV AL, 04H
+    163	006E  EE			     OUT DX, AL
+    164	006F  BA 02A2			       MOV DX, IO8254_1
+    165	0072  B0 14			     MOV AL, 014H
+    166	0074  EE			     OUT DX, AL
+    167	0075			     EOI:
+    168	0075  BA 02B0			     MOV DX,O8259_2	     ; 向8259发送中断结束命令（填空）
+    169	0078  B0 20			     MOV AL,20H			     ; 普通的EOI命令（填空）
+    170	007A  EE			     OUT DX,AL			     ; 填空
+    171	007B  EB D6			     JMP QUERY
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 4
+rad20850.ASM
+
+
+
+    172
+    173	007D			     ENDLESS:
+    174	007D  EB FE			     JMP ENDLESS
+    175
+    176
+    177
+    178	007F			     load_pattern proc
+    179	007F  50			     push ax
+    180	0080  51			     push cx
+    181	0081  56			     push si
+    182	0082  BE 0000			     mov si,0
+    183	0085  B9 0008			     mov cx,8
+    184	0088			     load_l1:
+    185	0088  8A 84 0008r		      mov al,byte ptr glider[si]    ; 复制temp到buffer\
+    186					     ;mov al, byte ptr exploder[si]    ; 复制temp到buffer
+    187					     ;mov al, byte ptr light_spaceship[si]
+    188	008C  88 84 0000r		     mov byte ptr buffer[si],al
+    189
+    190	0090  46			     inc si
+    191	0091  E2 F5			     loop load_l1
+    192	0093  5E			     pop si
+    193	0094  59			     pop cx
+    194	0095  58			     pop ax
+    195	0096  C3			     ret
+    196	0097			     load_pattern endp
+    197
+    198	0097			     generator	 proc		   ; 刷新画面，更新buffer
+    199	0097  BE 0000			 mov si,0
+    200	009A  BF 0000			 mov di,0
+    201	009D  E8 0284			 call judge
+    202	00A0  BE 0000			 mov si,0
+    203	00A3  BF 0001			 mov di,1
+    204	00A6  E8 027B			 call judge
+    205	00A9  BE 0000			 mov si,0
+    206	00AC  BF 0002			 mov di,2
+    207	00AF  E8 0272			 call judge
+    208	00B2  BE 0000			 mov si,0
+    209	00B5  BF 0003			 mov di,3
+    210	00B8  E8 0269			 call judge
+    211	00BB  BE 0000			 mov si,0
+    212	00BE  BF 0004			 mov di,4
+    213	00C1  E8 0260			 call judge
+    214	00C4  BE 0000			 mov si,0
+    215	00C7  BF 0005			 mov di,5
+    216	00CA  E8 0257			 call judge
+    217	00CD  BE 0000			 mov si,0
+    218	00D0  BF 0006			 mov di,6
+    219	00D3  E8 024E			 call judge
+    220	00D6  BE 0000			 mov si,0
+    221	00D9  BF 0007			 mov di,7
+    222	00DC  E8 0245			 call judge
+    223	00DF  BE 0001			 mov si,1
+    224	00E2  BF 0000			 mov di,0
+    225	00E5  E8 023C			 call judge
+    226	00E8  BE 0001			 mov si,1
+    227	00EB  BF 0001			 mov di,1
+    228	00EE  E8 0233			 call judge
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 5
+rad20850.ASM
+
+
+
+    229	00F1  BE 0001			 mov si,1
+    230	00F4  BF 0002			 mov di,2
+    231	00F7  E8 022A			 call judge
+    232	00FA  BE 0001			 mov si,1
+    233	00FD  BF 0003			 mov di,3
+    234	0100  E8 0221			 call judge
+    235	0103  BE 0001			 mov si,1
+    236	0106  BF 0004			 mov di,4
+    237	0109  E8 0218			 call judge
+    238	010C  BE 0001			 mov si,1
+    239	010F  BF 0005			 mov di,5
+    240	0112  E8 020F			 call judge
+    241	0115  BE 0001			 mov si,1
+    242	0118  BF 0006			 mov di,6
+    243	011B  E8 0206			 call judge
+    244	011E  BE 0001			 mov si,1
+    245	0121  BF 0007			 mov di,7
+    246	0124  E8 01FD			 call judge
+    247	0127  BE 0002			 mov si,2
+    248	012A  BF 0000			 mov di,0
+    249	012D  E8 01F4			 call judge
+    250	0130  BE 0002			 mov si,2
+    251	0133  BF 0001			 mov di,1
+    252	0136  E8 01EB			 call judge
+    253	0139  BE 0002			 mov si,2
+    254	013C  BF 0002			 mov di,2
+    255	013F  E8 01E2			 call judge
+    256	0142  BE 0002			 mov si,2
+    257	0145  BF 0003			 mov di,3
+    258	0148  E8 01D9			 call judge
+    259	014B  BE 0002			 mov si,2
+    260	014E  BF 0004			 mov di,4
+    261	0151  E8 01D0			 call judge
+    262	0154  BE 0002			 mov si,2
+    263	0157  BF 0005			 mov di,5
+    264	015A  E8 01C7			 call judge
+    265	015D  BE 0002			 mov si,2
+    266	0160  BF 0006			 mov di,6
+    267	0163  E8 01BE			 call judge
+    268	0166  BE 0002			 mov si,2
+    269	0169  BF 0007			 mov di,7
+    270	016C  E8 01B5			 call judge
+    271	016F  BE 0003			 mov si,3
+    272	0172  BF 0000			 mov di,0
+    273	0175  E8 01AC			 call judge
+    274	0178  BE 0003			 mov si,3
+    275	017B  BF 0001			 mov di,1
+    276	017E  E8 01A3			 call judge
+    277	0181  BE 0003			 mov si,3
+    278	0184  BF 0002			 mov di,2
+    279	0187  E8 019A			 call judge
+    280	018A  BE 0003			 mov si,3
+    281	018D  BF 0003			 mov di,3
+    282	0190  E8 0191			 call judge
+    283	0193  BE 0003			 mov si,3
+    284	0196  BF 0004			 mov di,4
+    285	0199  E8 0188			 call judge
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 6
+rad20850.ASM
+
+
+
+    286	019C  BE 0003			 mov si,3
+    287	019F  BF 0005			 mov di,5
+    288	01A2  E8 017F			 call judge
+    289	01A5  BE 0003			 mov si,3
+    290	01A8  BF 0006			 mov di,6
+    291	01AB  E8 0176			 call judge
+    292	01AE  BE 0003			 mov si,3
+    293	01B1  BF 0007			 mov di,7
+    294	01B4  E8 016D			 call judge
+    295	01B7  BE 0004			 mov si,4
+    296	01BA  BF 0000			 mov di,0
+    297	01BD  E8 0164			 call judge
+    298	01C0  BE 0004			 mov si,4
+    299	01C3  BF 0001			 mov di,1
+    300	01C6  E8 015B			 call judge
+    301	01C9  BE 0004			 mov si,4
+    302	01CC  BF 0002			 mov di,2
+    303	01CF  E8 0152			 call judge
+    304	01D2  BE 0004			 mov si,4
+    305	01D5  BF 0003			 mov di,3
+    306	01D8  E8 0149			 call judge
+    307	01DB  BE 0004			 mov si,4
+    308	01DE  BF 0004			 mov di,4
+    309	01E1  E8 0140			 call judge
+    310	01E4  BE 0004			 mov si,4
+    311	01E7  BF 0005			 mov di,5
+    312	01EA  E8 0137			 call judge
+    313	01ED  BE 0004			 mov si,4
+    314	01F0  BF 0006			 mov di,6
+    315	01F3  E8 012E			 call judge
+    316	01F6  BE 0004			 mov si,4
+    317	01F9  BF 0007			 mov di,7
+    318	01FC  E8 0125			 call judge
+    319	01FF  BE 0005			 mov si,5
+    320	0202  BF 0000			 mov di,0
+    321	0205  E8 011C			 call judge
+    322	0208  BE 0005			 mov si,5
+    323	020B  BF 0001			 mov di,1
+    324	020E  E8 0113			 call judge
+    325	0211  BE 0005			 mov si,5
+    326	0214  BF 0002			 mov di,2
+    327	0217  E8 010A			 call judge
+    328	021A  BE 0005			 mov si,5
+    329	021D  BF 0003			 mov di,3
+    330	0220  E8 0101			 call judge
+    331	0223  BE 0005			 mov si,5
+    332	0226  BF 0004			 mov di,4
+    333	0229  E8 00F8			 call judge
+    334	022C  BE 0005			 mov si,5
+    335	022F  BF 0005			 mov di,5
+    336	0232  E8 00EF			 call judge
+    337	0235  BE 0005			 mov si,5
+    338	0238  BF 0006			 mov di,6
+    339	023B  E8 00E6			 call judge
+    340	023E  BE 0005			 mov si,5
+    341	0241  BF 0007			 mov di,7
+    342	0244  E8 00DD			 call judge
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 7
+rad20850.ASM
+
+
+
+    343	0247  BE 0006			 mov si,6
+    344	024A  BF 0000			 mov di,0
+    345	024D  E8 00D4			 call judge
+    346	0250  BE 0006			 mov si,6
+    347	0253  BF 0001			 mov di,1
+    348	0256  E8 00CB			 call judge
+    349	0259  BE 0006			 mov si,6
+    350	025C  BF 0002			 mov di,2
+    351	025F  E8 00C2			 call judge
+    352	0262  BE 0006			 mov si,6
+    353	0265  BF 0003			 mov di,3
+    354	0268  E8 00B9			 call judge
+    355	026B  BE 0006			 mov si,6
+    356	026E  BF 0004			 mov di,4
+    357	0271  E8 00B0			 call judge
+    358	0274  BE 0006			 mov si,6
+    359	0277  BF 0005			 mov di,5
+    360	027A  E8 00A7			 call judge
+    361	027D  BE 0006			 mov si,6
+    362	0280  BF 0006			 mov di,6
+    363	0283  E8 009E			 call judge
+    364	0286  BE 0006			 mov si,6
+    365	0289  BF 0007			 mov di,7
+    366	028C  E8 0095			 call judge
+    367	028F  BE 0007			 mov si,7
+    368	0292  BF 0000			 mov di,0
+    369	0295  E8 008C			 call judge
+    370	0298  BE 0007			 mov si,7
+    371	029B  BF 0001			 mov di,1
+    372	029E  E8 0083			 call judge
+    373	02A1  BE 0007			 mov si,7
+    374	02A4  BF 0002			 mov di,2
+    375	02A7  E8 007A			 call judge
+    376	02AA  BE 0007			 mov si,7
+    377	02AD  BF 0003			 mov di,3
+    378	02B0  E8 0071			 call judge
+    379	02B3  BE 0007			 mov si,7
+    380	02B6  BF 0004			 mov di,4
+    381	02B9  E8 0068			 call judge
+    382	02BC  BE 0007			 mov si,7
+    383	02BF  BF 0005			 mov di,5
+    384	02C2  E8 005F			 call judge
+    385	02C5  BE 0007			 mov si,7
+    386	02C8  BF 0006			 mov di,6
+    387	02CB  E8 0056			 call judge
+    388	02CE  BE 0007			 mov si,7
+    389	02D1  BF 0007			 mov di,7
+    390	02D4  E8 004D			 call judge
+    391	02D7  E8 0032			 call copy_to_buffer
+    392	02DA			     generator	 endp
+    393
+    394				     ; DIPS实现Buffer的点阵输出
+    395				     ; 在仿真时，R=1,W=0，对应的点才会亮
+    396	02DA			     DISP    PROC
+    397	02DA  50			     PUSH AX
+    398	02DB  53			     PUSH BX
+    399	02DC  51			     PUSH CX
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 8
+rad20850.ASM
+
+
+
+    400	02DD  52			     PUSH DX
+    401	02DE  56			     PUSH SI
+    402	02DF  B9 0008			     MOV CX,8
+    403	02E2  B3 01			     MOV BL,1
+    404	02E4  BE 0000			     MOV SI,0
+    405	02E7			     DISP_L1:
+    406
+    407	02E7  BA 0282			     MOV DX,ROW
+    408	02EA  8A C3			     MOV AL,BL
+    409	02EC  EE			     OUT DX,AL
+    410	02ED  E8 0014			     CALL DELAY
+    411
+    412	02F0  BA 0280			     MOV DX,COL
+    413	02F3  8A 04			      MOV AL,[si]
+    414					      ;NOT AL
+    415	02F5  EE			     OUT DX,AL
+    416	02F6  E8 000B			       CALL DELAY
+    417	02F9  D0 E3			     SHL BL,1
+    418	02FB  46			     INC SI
+    419
+    420	02FC  E2 E9			     LOOP DISP_L1
+    421
+    422	02FE  5E			     POP SI
+    423	02FF  5A			     POP DX
+    424	0300  59			     POP CX
+    425	0301  5B			     POP BX
+    426	0302  58			     POP AX
+    427	0303  C3			     RET
+    428	0304			     DISP    ENDP
+    429
+    430
+    431				     ; 延时子程序
+    432				     ; 调节CX大小可以控制时长
+    433	0304			     DELAY   PROC
+    434	0304  51			     PUSH CX
+    435	0305  B9 000F			     MOV CX,000FH
+    436	0308  E2 FE		     DL1:    LOOP DL1
+    437	030A  59			     POP CX
+    438	030B  C3			     RET
+    439	030C			     DELAY   ENDP
+    440
+    441
+    442
+    443
+    444				     ; 将temp的内容复制给buffer，并将temp清空
+    445	030C			     copy_to_buffer  proc
+    446	030C  50			     push ax
+    447	030D  51			     push cx
+    448	030E  56			     push si
+    449	030F  BE 0000			     mov si,0
+    450	0312  B9 0008			     mov cx,8
+    451	0315			     cpt_l1:
+    452	0315  8A 84 0020r		     mov al,byte ptr temp[si]	 ; 复制temp到buffer
+    453	0319  88 84 0000r		     mov byte ptr buffer[si],al
+    454
+    455	031D  46			     inc si
+    456	031E  E2 F5			     loop cpt_l1
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 9
+rad20850.ASM
+
+
+
+    457	0320  5E			     pop si
+    458	0321  59			     pop cx
+    459	0322  58			     pop ax
+    460	0323  C3			     ret
+    461	0324			     copy_to_buffer  endp
+    462
+    463
+    464
+    465				     ; 依据周围8格的值设置temp[si][di]
+    466	0324			     judge proc
+    467	0324  B8 0000			     mov ax,0
+    468	0327			     cmp_1:
+    469					     ; 左上
+    470	0327  83 FE 00			     cmp si,0
+    471	032A  74 10			     je	cmp_2
+    472	032C  83 FF 00			     cmp di,0
+    473	032F  74 0B			     je	cmp_2
+    474	0331  56			     push si
+    475	0332  57			     push di
+    476	0333  4E			     dec si
+    477	0334  4F			     dec di
+    478	0335  E8 00B4			     call get_buffer
+    479	0338  03 C3			     add ax,bx
+    480	033A  5F			     pop di
+    481	033B  5E			     pop si
+    482
+    483	033C			     cmp_2:  ; 上
+    484	033C  83 FE 00			     cmp si,0
+    485	033F  74 0A			     je	cmp_3
+    486	0341  56			     push si
+    487	0342  57			     push di
+    488	0343  4E			     dec si
+    489	0344  E8 00A5			     call get_buffer
+    490	0347  03 C3			     add ax,bx
+    491	0349  5F			     pop di
+    492	034A  5E			     pop si
+    493
+    494	034B			     cmp_3:
+    495					     ; 右上
+    496	034B  83 FE 00			     cmp si,0
+    497	034E  74 10			     je	cmp_4
+    498	0350  83 FF 07			     cmp di,7
+    499	0353  74 0B			     je	cmp_4
+    500	0355  56			     push si
+    501	0356  57			     push di
+    502	0357  4E			     dec si
+    503	0358  47			     inc di
+    504	0359  E8 0090			     call get_buffer
+    505	035C  03 C3			     add ax,bx
+    506	035E  5F			     pop di
+    507	035F  5E			     pop si
+    508
+    509	0360			     cmp_4:
+    510					     ; 左
+    511	0360  83 FF 00			     cmp di,0
+    512	0363  74 0A			     je	cmp_5
+    513	0365  56			     push si
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 10
+rad20850.ASM
+
+
+
+    514	0366  57			     push di
+    515	0367  4F			     dec di
+    516	0368  E8 0081			     call get_buffer
+    517	036B  03 C3			     add ax,bx
+    518	036D  5F			     pop di
+    519	036E  5E			     pop si
+    520
+    521	036F			     cmp_5:
+    522					     ; 右
+    523	036F  83 FF 07			     cmp di,7
+    524	0372  74 0A			     je	cmp_6
+    525	0374  56			     push si
+    526	0375  57			     push di
+    527	0376  47			     inc di
+    528	0377  E8 0072			     call get_buffer
+    529	037A  03 C3			     add ax,bx
+    530	037C  5F			     pop di
+    531	037D  5E			     pop si
+    532
+    533	037E			     cmp_6:
+    534					     ; 左下
+    535	037E  83 FE 07			     cmp si,7
+    536	0381  74 10			     je	cmp_7
+    537	0383  83 FF 00			     cmp di,0
+    538	0386  74 0B			     je	cmp_7
+    539	0388  56			     push si
+    540	0389  57			     push di
+    541	038A  46			     inc si
+    542	038B  4F			     dec di
+    543	038C  E8 005D			     call get_buffer
+    544	038F  03 C3			     add ax,bx
+    545	0391  5F			     pop di
+    546	0392  5E			     pop si
+    547
+    548	0393			     cmp_7:
+    549					     ; 下
+    550	0393  83 FE 07			     cmp si,7
+    551	0396  74 0A			     je	cmp_8
+    552	0398  56			     push si
+    553	0399  57			     push di
+    554	039A  46			     inc si
+    555	039B  E8 004E			     call get_buffer
+    556	039E  03 C3			     add ax,bx
+    557	03A0  5F			     pop di
+    558	03A1  5E			     pop si
+    559
+    560	03A2			     cmp_8:
+    561					     ; 右下
+    562	03A2  83 FF 07			     cmp di,7
+    563	03A5  74 10			     je	cmp_end
+    564	03A7  83 FE 07			     cmp si,7
+    565	03AA  74 0B			     je	cmp_end
+    566	03AC  56			     push si
+    567	03AD  57			     push di
+    568	03AE  46			     inc si
+    569	03AF  47			     inc di
+    570	03B0  E8 0039			     call get_buffer
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 11
+rad20850.ASM
+
+
+
+    571	03B3  03 C3			     add ax,bx
+    572	03B5  5F			     pop di
+    573	03B6  5E			     pop si
+    574
+    575	03B7			     cmp_end:
+    576					     ; 结束判断，为buffer[si][di]赋值
+    577					     ; 若buffer[si][di]为1，则当
+    578	03B7  8A 9C 0000r		     mov bl,buffer[si]	 ; bx =	buffer[si]
+    579	03BB  B9 0007			     mov cx,7		 ; cx =	7-di
+    580	03BE  2B CF			     sub cx,di
+    581	03C0  D2 EB			     shr bl,cl
+    582	03C2  83 E3 01			     and bx,1		 ; 当buffer[si][di]为1时，bx = 1
+    583	03C5  83 FB 01			     cmp bx,1
+    584	03C8  75 0D			     jne cmp_die
+    585	03CA			     cmp_live:
+    586	03CA  3D 0002			     cmp ax,2
+    587	03CD  7C 16			     jl	is_die		 ; 活细胞邻居少于2，死掉
+    588	03CF  3D 0004			     cmp ax,4
+    589	03D2  7C 0B			     jl	is_live		 ; 活细胞邻居是2或3，存活
+    590	03D4  EB 0F 90			     jmp is_die		 ; 大于等于4个，死掉
+    591	03D7			     cmp_die:
+    592	03D7  3D 0003			     cmp ax,3
+    593	03DA  74 03			     je	is_live		 ; 繁殖
+    594	03DC  EB 07 90			     jmp is_die
+    595	03DF			     is_live:
+    596	03DF  E8 0019			     call set_temp	 ; 置1
+    597	03E2  EB 07 90			     jmp re_end
+    598	03E5			     is_die:
+    599	03E5  E8 002F			     call reset_temp	 ; 置0
+    600	03E8  EB 01 90			     jmp re_end
+    601
+    602	03EB			     re_end:
+    603	03EB  C3			     ret
+    604	03EC			     judge   endp
+    605
+    606
+    607				     ; 获取buffer[si][di]的值，并存放在bx当中
+    608	03EC			     get_buffer	 proc
+    609	03EC  8A 9C 0000r		     mov bl,buffer[si]	 ; bx =	buffer[si]
+    610	03F0  B9 0007			     mov cx,7		 ; cx =	7-di
+    611	03F3  2B CF			     sub cx,di
+    612	03F5  D2 EB			     shr bl,cl
+    613	03F7  83 E3 01			     and bx,1		 ; 当buffer[si][di]为1时，bx = 1
+    614	03FA  C3				 ret
+    615	03FB			     get_buffer	 endp
+    616
+    617				     ; 将buffer[si][di]的值设置为1
+    618	03FB			     set_temp	 proc
+    619	03FB  50			     push ax
+    620	03FC  53			     push bx
+    621	03FD  51			     push cx
+    622	03FE  52			     push dx
+    623
+    624	03FF  8A 84 0020r		     mov al,temp[si]
+    625	0403  B9 0007			     mov cx,7
+    626	0406  2B CF			     sub cx,di
+    627	0408  B3 01			     mov bl,1
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 12
+rad20850.ASM
+
+
+
+    628	040A  D2 E3			     shl bl,cl
+    629	040C  0A C3			     or	 al,bl
+    630	040E  88 84 0020r		     mov temp[si],al
+    631
+    632	0412  5A			     pop dx
+    633	0413  59			     pop cx
+    634	0414  5B			     pop bx
+    635	0415  58			     pop ax
+    636
+    637	0416  C3			       ret
+    638	0417			     set_temp	 endp
+    639
+    640
+    641				     ; 将buffer[si][di]的值设置为0
+    642	0417			     reset_temp	   proc
+    643	0417  50			     push ax
+    644	0418  53			     push bx
+    645	0419  51			     push cx
+    646	041A  52			     push dx
+    647
+    648	041B  8A 84 0020r		     mov al,temp[si]
+    649	041F  B9 0007			     mov cx,7
+    650	0422  2B CF			     sub cx,di
+    651	0424  B3 01			     mov bl,1
+    652	0426  D2 E3			     shl bl,cl
+    653	0428  F6 D3			     not bl
+    654	042A  22 C3			     and al,bl
+    655	042C  88 84 0020r		     mov temp[si],al
+    656
+    657	0430  5A			     pop dx
+    658	0431  59			     pop cx
+    659	0432  5B			     pop bx
+    660	0433  58			     pop ax
+    661	0434  C3				 ret
+    662	0435			     reset_temp	   endp
+    663
+    664
+    665	0435			     CODE ENDS
+    666					 END START
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 13
+Symbol Table
+
+
+
+
+Symbol Name			  Type	 Value
+
+??DATE				  Text	 "12-21-19"
+??FILENAME			  Text	 "rad20850"
+??TIME				  Text	 "14:02:50"
+??VERSION			  Number 0500
+@CPU				  Text	 0101H
+@CURSEG				  Text	 CODE
+@FILENAME			  Text	 RAD20850
+@WORDSIZE			  Text	 2
+BUFFER				  Byte	 DATA:0000
+CMP_1				  Near16 CODE:0327
+CMP_2				  Near16 CODE:033C
+CMP_3				  Near16 CODE:034B
+CMP_4				  Near16 CODE:0360
+CMP_5				  Near16 CODE:036F
+CMP_6				  Near16 CODE:037E
+CMP_7				  Near16 CODE:0393
+CMP_8				  Near16 CODE:03A2
+CMP_DIE				  Near16 CODE:03D7
+CMP_END				  Near16 CODE:03B7
+CMP_LIVE			  Near16 CODE:03CA
+COL				  Alias	 IO8255_A
+COPY_TO_BUFFER			  Near16 CODE:030C
+CPT_L1				  Near16 CODE:0315
+DELAY				  Near16 CODE:0304
+DISP				  Near16 CODE:02DA
+DISP_L1				  Near16 CODE:02E7
+DIS_LOOP			  Near16 CODE:0056
+DL1				  Near16 CODE:0308
+ENDLESS				  Near16 CODE:007D
+EOI				  Near16 CODE:0075
+EXPLODER			  Byte	 DATA:0010
+GENERATOR			  Near16 CODE:0097
+GET_BUFFER			  Near16 CODE:03EC
+GLIDER				  Byte	 DATA:0008
+I8259_1				  Number 02B4
+I8259_2				  Number 02B3
+I8259_3				  Number 02B6
+I8259_4				  Number 02B5
+IO8254_0			  Number 02A0
+IO8254_1			  Number 02A2
+IO8254_2			  Number 02A4
+IO8254_MODE			  Number 02A6
+IO8255_A			  Number 0280
+IO8255_B			  Number 0282
+IO8255_C			  Number 0284
+IO8255_MODE			  Number 0286
+IS_DIE				  Near16 CODE:03E5
+IS_LIVE				  Near16 CODE:03DF
+JUDGE				  Near16 CODE:0324
+LIGHT_SPACESHIP			  Byte	 DATA:0018
+LOAD_L1				  Near16 CODE:0088
+LOAD_PATTERN			  Near16 CODE:007F
+MSG				  Byte	 DATA:0028
+O8259_1				  Number 02B1
+Turbo Assembler	 Version 5.0	    12-21-19 14:02:50	    Page 14
+Symbol Table
+
+
+
+O8259_2				  Number 02B0
+O8259_3				  Number 02B2
+QUERY				  Near16 CODE:0053
+RESET_TEMP			  Near16 CODE:0417
+RE_END				  Near16 CODE:03EB
+ROW				  Alias	 IO8255_B
+SET_TEMP			  Near16 CODE:03FB
+START				  Near16 CODE:0000
+TEMP				  Byte	 DATA:0020
+
+Groups & Segments		  Bit Size Align  Combine Class
+
+CODE				  16  0435 Para	  none	  CODE
+DATA				  16  0036 Para	  none	  DATA
+MYSTACK				  16  0100 Para	  none	  STACK
+
