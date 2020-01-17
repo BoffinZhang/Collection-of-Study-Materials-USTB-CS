@@ -10,6 +10,6 @@ Course material of USTB Computer Science. Study usage only. 侵删
     1. [数据结构](/Sophomore/Data%20Structure)
 - 大三
     1. [算法设计与分析](/Junior/Algorithm%20Design%20and%20Analysis)
-    2. [操作系统](Junior/Computer%20Network)
+    2. [操作系统](Junior/Computer%20System)
     3. [计算机网络](Junior/Computer%20Network)
     4. [汇编语言与接口技术](Junior/Assembly%20Language)
