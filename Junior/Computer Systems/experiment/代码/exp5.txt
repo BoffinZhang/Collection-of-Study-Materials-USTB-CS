@@ -1,0 +1,33 @@
+#include "EOSApp.h"
+
+int main(int argc, char* argv[])
+{
+	
+	int *d;
+	
+	// 为变量分配内存空间
+	if(d = VirtualAlloc(0,sizeof(int),MEM_RESERVE|MEM_COMMIT)){
+		printf("Allocate %d bytes virtual memory at 0x%x\n\n",sizeof(int),*d);
+	
+		printf("Virtual memory original value:0x%x\n\n",*d);
+		// 修改变量的值
+		*d = 0xFFFFFFFF;
+		
+		printf("Virtual memory new value:0x%x\n\n",*d);
+		// 等待10s
+		Sleep(10000);
+		printf("Wait for 10 second\n\n");
+	}
+	
+	if(VirtualFree(d,0,MEM_RELEASE)==1)
+		// 释放成功，打印信息
+		printf("SUCCESS\n");
+	else
+		// 释放失败
+		printf("ERROR\n");
+	
+	printf("Endless loop!\n");
+	for(;;){}
+	
+	return 0;
+}

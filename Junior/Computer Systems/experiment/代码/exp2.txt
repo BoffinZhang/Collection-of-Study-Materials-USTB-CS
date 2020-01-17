@@ -1,0 +1,7 @@
+// 添加挂起状态
+// 在ps/psspnd.c的120行添加下面两行代码：
+
+// 线程从挂起队列移除
+ListRemoveEntry(&Thread->StateListEntry);
+// 将线程转换为Ready状态，并加入就绪队列队尾
+PspReadyThread(Thread);

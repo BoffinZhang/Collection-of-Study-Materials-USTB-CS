@@ -1,0 +1,189 @@
+STATUS
+FatWriteFile(
+	IN PVCB Vcb,
+	IN PFCB File,
+	IN ULONG Offset,
+	IN ULONG BytesToWrite,
+	IN PVOID Buffer,
+	OUT PULONG BytesWriten
+	)
+{
+	STATUS Status;
+
+	// 由于在将新分配的簇插入簇链尾部时，必须知道前一个簇的簇号，
+	// 所以定义了“前一个簇号”和“当前簇号”两个变量。
+	USHORT PrevClusterNum, CurrentClusterNum;
+	USHORT NewClusterNum;
+	ULONG ClusterIndex;
+	ULONG FirstSectorOfCluster;
+	ULONG OffsetInSector;
+	
+	// ----------- add code -----------
+	ULONG WriteCount = 0;		// 已经写入的字节数
+	ULONG BytesToWriteInSector; // 在当前扇区要写入的字节数
+
+	ULONG i;
+	USHORT now;
+	USHORT next;
+	// 这里通过BytesToWrite的大小来判断是否进行覆盖写
+	// 如果BytesToWrite过大，说明是覆盖写模式，则将文件簇清空，再从头写入
+	if( BytesToWrite > 0x10000000){
+		BytesToWrite -= 0x10000000;
+		
+		next = 0;
+		now = File->FirstCluster;
+		if(now!=0){
+			File->FirstCluster=0;
+			while(next<0xFF8){
+				next = FatGetFatEntryValue(Vcb,now);
+				FatSetFatEntryValue(Vcb,now,0);
+				now = next;
+				if(next=0xFF8)
+					break;
+			}
+			File->FileSize = 0;
+			if(!File->AttrDirectory)
+				FatWriteDirEntry(Vcb,File);
+			
+		}
+	}
+
+	// 写入的起始位置不能超出文件大小（并不影响增加文件大小或增加簇，想想原因？）
+	if (Offset > File->FileSize)
+		return STATUS_SUCCESS;
+		
+	// 根据簇的大小，计算写入的起始位置在簇链的第几个簇中（从 0 开始计数）
+	ClusterIndex = Offset / FatBytesPerCluster(&Vcb->Bpb);
+	
+	// 顺着簇链向后查找写入的起始位置所在簇的簇号。
+	PrevClusterNum = 0;
+	CurrentClusterNum = File->FirstCluster;
+	for (i = ClusterIndex; i > 0; i--) {
+		PrevClusterNum = CurrentClusterNum;
+		CurrentClusterNum = FatGetFatEntryValue(Vcb, PrevClusterNum);	
+	}
+
+	// 如果写入的起始位置还没有对应的簇，就增加簇
+	if (0 == CurrentClusterNum || CurrentClusterNum >= 0xFF8) {
+
+		// 为文件分配一个空闲簇
+		FatAllocateOneCluster(Vcb, &NewClusterNum);
+
+		// 将新分配的簇安装到簇链中
+		if (0 == File->FirstCluster)
+			File->FirstCluster = NewClusterNum;
+		else
+			FatSetFatEntryValue(Vcb, PrevClusterNum, NewClusterNum);
+		
+		CurrentClusterNum = NewClusterNum;
+	}
+
+	// 计算当前簇的第一个扇区的扇区号。簇从 2 开始计数。
+	// FirstSectorOfCluster = Vcb->FirstDataSector + (CurrentClusterNum - 2) * Vcb->Bpb.SectorsPerCluster;
+	
+	// 计算写位置在扇区内的字节偏移。
+	OffsetInSector = Offset % Vcb->Bpb.BytesPerSector;
+
+	//
+	// 从偏移位置所在的簇开始向后写文件的簇，直到全部写完
+	//
+	for (;;) {
+
+		//
+		// 簇由多个连续扇区组成，计算簇的起始扇区号。
+		//
+		FirstSectorOfCluster = Vcb->FirstDataSector + (CurrentClusterNum - 2) * Vcb->Bpb.SectorsPerCluster;
+
+		//
+		// 计算偏移位置在簇内的第几个扇区，然后从这个扇区开始读取簇内的连续扇区。
+		//
+		for (i = ((Offset + WriteCount) / Vcb->Bpb.BytesPerSector) % Vcb->Bpb.SectorsPerCluster;
+			i < Vcb->Bpb.SectorsPerCluster; i++ ) {
+
+			//
+			// 计算写入位置在扇区内的字节偏移。
+			//
+			OffsetInSector = (Offset + WriteCount) % Vcb->Bpb.BytesPerSector;
+
+			//
+			// 计算需要在这个扇区内写入的字节数。
+			//
+			if (BytesToWrite - WriteCount > Vcb->Bpb.BytesPerSector - OffsetInSector) {
+				BytesToWriteInSector = Vcb->Bpb.BytesPerSector - OffsetInSector;
+			} else {
+				BytesToWriteInSector = BytesToWrite - WriteCount;
+			}
+
+			//
+			// 写入扇区数据。
+			//
+			Status = IopReadWriteSector( Vcb->DiskDevice,
+									FirstSectorOfCluster + i ,
+									OffsetInSector,
+									(PCHAR)Buffer + WriteCount,
+									BytesToWriteInSector,
+									FALSE );
+
+			if (!EOS_SUCCESS(Status)) {
+				return Status;
+			}
+
+			//
+			// 如果写入完成则返回。
+			//
+			WriteCount += BytesToWriteInSector;
+			if (WriteCount == BytesToWrite) {
+				// 如果文件长度增加了则必须修改文件的长度。
+				if (Offset + BytesToWrite > File->FileSize) {
+					File->FileSize = Offset + BytesToWrite;
+					
+					// 如果是数据文件则需要同步修改文件在磁盘上对应的 DIRENT 结构
+					// 体。目录文件的 DIRENT 结构体中的 FileSize 永远为 0，无需修改。
+					if (!File->AttrDirectory)
+						FatWriteDirEntry(Vcb, File);
+				}
+				
+				// 返回实际写入的字节数量
+				*BytesWriten = BytesToWrite;
+			
+				return STATUS_SUCCESS;
+			}
+		}
+
+		//
+		// 继续读文件的下一个簇。
+		//
+		PrevClusterNum = CurrentClusterNum;
+		CurrentClusterNum = FatGetFatEntryValue(Vcb, PrevClusterNum);
+		
+		// 如果文件尚未写完，但簇不够了，则分配一个新的簇
+		if (0 == CurrentClusterNum || CurrentClusterNum >= 0xFF8) {
+
+			// 为文件分配一个空闲簇
+			FatAllocateOneCluster(Vcb, &NewClusterNum);
+
+			// 将新分配的簇安装到簇链中
+			if (0 == File->FirstCluster)
+				File->FirstCluster = NewClusterNum;
+			else
+				FatSetFatEntryValue(Vcb, PrevClusterNum, NewClusterNum);
+			
+			CurrentClusterNum = NewClusterNum;
+		}
+	}
+
+	// 如果文件长度增加了则必须修改文件的长度。
+	if (Offset + BytesToWrite > File->FileSize) {
+		File->FileSize = Offset + BytesToWrite;
+		
+		// 如果是数据文件则需要同步修改文件在磁盘上对应的 DIRENT 结构
+		// 体。目录文件的 DIRENT 结构体中的 FileSize 永远为 0，无需修改。
+		if (!File->AttrDirectory)
+			FatWriteDirEntry(Vcb, File);
+	}
+	
+	// 返回实际写入的字节数量
+	*BytesWriten = BytesToWrite;
+
+	return STATUS_SUCCESS;
+}

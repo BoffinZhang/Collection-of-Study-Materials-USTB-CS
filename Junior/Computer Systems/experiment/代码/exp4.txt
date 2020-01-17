@@ -1,0 +1,25 @@
+// 时间片轮转的实现
+VOID
+PspRoundRobin(
+	VOID
+	)
+	// 时间片轮转调度函数，被定时计数器中断服务程序 KiIsrTimer 调用。
+{
+		if(NULL!=PspCurrentThread && Running == PspCurrentThread->State){
+		// 剩余时间片大于0
+		if(PspCurrentThread->RemainderTicks>0){
+			PspCurrentThread->RemainderTicks--;	// 减少一个剩余时间片
+		}
+		
+		// 剩余时间片=0，需要进程调度
+		if(PspCurrentThread->RemainderTicks==0){
+			PspCurrentThread->RemainderTicks = TICKS_OF_TIME_SLICE;
+			// 判断位图之中，与被中断线程优先级相同的队列，有无就绪线程
+			if(BIT_TEST(PspReadyBitmap,PspCurrentThread->Priority)){
+				PspReadyThread(PspCurrentThread);
+			}
+		}
+	}
+
+	return;
+}

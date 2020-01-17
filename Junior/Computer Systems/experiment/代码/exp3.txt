@@ -1,0 +1,22 @@
+// 超时唤醒
+if(Semaphore->Count>0){
+		Semaphore->Count--;
+		myStatus = STATUS_SUCCESS;
+	}
+	
+	if(Semaphore->Count==0){
+		myStatus = PspWait(&Semaphore->WaitListHead,Milliseconds);
+	}
+
+// 批量释放
+int i;
+for(i=ReleaseCount;i>0;i--){
+    // 检查waitlist不为空
+    if(!ListIsEmpty(&Semaphore->WaitListHead)){
+        PspWakeThread(&Semaphore->WaitListHead, STATUS_SUCCESS);
+    }
+    else{
+        Semaphore->Count += i;
+        break;
+    }
+}
